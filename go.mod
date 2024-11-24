@@ -1,6 +1,6 @@
-module swap
+module github.com/mantth/swap
 
-go 1.23.3
+go 1.22
 
 require (
 	github.com/ethereum/go-ethereum v1.14.12
