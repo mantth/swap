@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"go.uber.org/zap"
 	"math/big"
 	"swap/config"
 	"swap/evm/uniswap/contract"
@@ -18,12 +17,12 @@ import (
 type RouterService struct {
 	ctx    context.Context
 	client *ethclient.Client
-	logger *zap.Logger
+	logger Logger
 	config *config.NetworkConfig
 }
 
 // NewRouterService creates a new RouterService
-func NewRouterService(ctx context.Context, client *ethclient.Client, logger *zap.Logger, network *config.NetworkConfig) *RouterService {
+func NewRouterService(ctx context.Context, client *ethclient.Client, logger Logger, network *config.NetworkConfig) *RouterService {
 	return &RouterService{
 		ctx:    ctx,
 		client: client,

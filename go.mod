@@ -1,4 +1,4 @@
-module github.com/mantth/swap
+module swap
 
 go 1.22
 

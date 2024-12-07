@@ -12,15 +12,24 @@ import (
 	"swap/utils"
 )
 
+type Logger interface {
+	Info(msg string, fields ...zap.Field)
+	Debug(msg string, fields ...zap.Field)
+	Warn(msg string, fields ...zap.Field)
+	Error(msg string, fields ...zap.Field)
+	Fatal(msg string, fields ...zap.Field)
+	Printf(s string, i ...interface{})
+}
+
 type TradeService struct {
 	ctx           context.Context
 	client        *ethclient.Client
 	routerService *RouterService
-	logger        *zap.Logger
+	logger        Logger
 	chain         string
 }
 
-func NewTradeService(ctx context.Context, rpc string, logger *zap.Logger, network *config.NetworkConfig) (*TradeService, error) {
+func NewTradeService(ctx context.Context, rpc string, logger Logger, network *config.NetworkConfig) (*TradeService, error) {
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
 		return nil, err
