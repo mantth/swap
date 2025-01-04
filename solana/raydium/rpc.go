@@ -146,7 +146,6 @@ func GetPoolFromMints(ctx context.Context, client rpc.Client, quote solana.Publi
 			return nil, err
 		}
 	}
-	fmt.Println(ammInfo)
 
 	// get market info
 	marketData, err := client.GetAccountInfo(ctx, marketId)
