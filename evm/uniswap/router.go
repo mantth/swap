@@ -35,7 +35,7 @@ func NewRouterService(ctx context.Context, client *ethclient.Client, logger Logg
 func (s *RouterService) CalculateMinTokens(tokenAddress common.Address, amountEth *big.Int, slippage float64) (*big.Int, error) {
 	estimatedTokens, err := s.GetEstimatedTokensForETH(tokenAddress, amountEth)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return nil, err
 	}
 
@@ -56,14 +56,14 @@ func IsValidEthereumAddress(address string) bool {
 func (s *RouterService) CheckUserBalance(userAddress string, tokenAddress common.Address) (*big.Int, error) {
 	erc20, err := contract.NewErc20(tokenAddress, s.client)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return nil, err
 	}
 
 	address := common.HexToAddress(userAddress)
 	balance, err := erc20.BalanceOf(&bind.CallOpts{}, address)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return nil, err
 	}
 
@@ -75,45 +75,45 @@ func (s *RouterService) SwapETHForToken(userWalletPrivateKey string, tokenAddres
 	routerAddr := common.HexToAddress(s.config.RouterAddress)
 	router, err := contract.NewRouter(routerAddr, s.client)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
 	privateKey, err := crypto.HexToECDSA(userWalletPrivateKey)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
 	chainID, err := s.client.NetworkID(context.Background())
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
-		s.logger.Error("invalid private key")
+		s.logger.ErrorCtx(s.ctx, "invalid private key")
 		return "", errors.New("invalid private key")
 	}
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 
 	nonce, err := s.client.PendingNonceAt(s.ctx, fromAddress)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
 	gasPrice, err := s.client.SuggestGasPrice(s.ctx)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
@@ -134,7 +134,7 @@ func (s *RouterService) SwapETHForToken(userWalletPrivateKey string, tokenAddres
 
 	tx, err := router.ExactInputSingle(auth, exactInputSingleParams)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 	return tx.Hash().Hex(), nil
@@ -152,7 +152,7 @@ func (s *RouterService) GetEstimatedTokensForETH(tokenAddress common.Address, am
 	quoteAddr := common.HexToAddress(s.config.QuoteAddress)
 	quote, err := contract.NewQuote(quoteAddr, s.client)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return nil, err
 	}
 	rawCaller := contract.QuoteRaw{Contract: quote}
@@ -165,7 +165,7 @@ func (s *RouterService) GetEstimatedTokensForETH(tokenAddress common.Address, am
 		SqrtPriceLimitX96: big.NewInt(0),
 	})
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return nil, err
 	}
 	amountOut := big.NewInt(0)

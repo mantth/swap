@@ -19,6 +19,8 @@ type Logger interface {
 	Error(msg string, fields ...zap.Field)
 	Fatal(msg string, fields ...zap.Field)
 	Printf(s string, i ...interface{})
+	ErrorCtx(ctx context.Context, msg string, fields ...zap.Field)
+	InfoCtx(ctx context.Context, msg string, fields ...zap.Field)
 }
 
 type TradeService struct {
@@ -48,7 +50,7 @@ func NewTradeService(ctx context.Context, rpc string, logger Logger, network *co
 func (s *TradeService) ExecuteTrade(userWalletPrivateKey, tokenAddress string, amountEth float64, slippage float64) (string, error) {
 	// Validate the private key.
 	if _, err := crypto.HexToECDSA(userWalletPrivateKey); err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", errors.New("invalid private key")
 	}
 
@@ -61,14 +63,14 @@ func (s *TradeService) ExecuteTrade(userWalletPrivateKey, tokenAddress string, a
 	// Convert the private key from hex to *ecdsa.PrivateKey
 	privateKey, err := crypto.HexToECDSA(userWalletPrivateKey)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", errors.New("invalid private key")
 	}
 
 	// Derive the public key from the private key
 	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
 	if !ok {
-		s.logger.Error("error casting public key to ECDSA")
+		s.logger.ErrorCtx(s.ctx, "error casting public key to ECDSA")
 		return "", errors.New("error casting public key to ECDSA")
 	}
 
@@ -78,7 +80,7 @@ func (s *TradeService) ExecuteTrade(userWalletPrivateKey, tokenAddress string, a
 	// Check user's ETH balance
 	ethBalance, err := s.client.BalanceAt(context.Background(), userAddress, nil)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "", err
 	}
 
@@ -91,14 +93,14 @@ func (s *TradeService) ExecuteTrade(userWalletPrivateKey, tokenAddress string, a
 	// Calculate min tokens to accept based on slippage.
 	minTokens, err := s.routerService.CalculateMinTokens(tokenAddr, amountWei, slippage)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "Failed to calculate minimum tokens based on slippage", err
 	}
 
 	// Execute the swap.
 	txHash, err := s.routerService.SwapETHForToken(userWalletPrivateKey, tokenAddr, amountWei, minTokens)
 	if err != nil {
-		s.logger.Error(err.Error())
+		s.logger.ErrorCtx(s.ctx, err.Error())
 		return "Failed to swap ETH for the token", err
 	}
 
