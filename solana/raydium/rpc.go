@@ -267,7 +267,6 @@ func GetTokenAccountsFromMints(ctx context.Context, clientRPC rpc.Client, owner 
 func BuildTransaction(ctx context.Context, clientRPC *rpc.Client, signers []solana.PrivateKey, instrs ...solana.Instruction) (*solana.Transaction, error) {
 	recent, err := clientRPC.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
 	if err != nil {
-		fmt.Println(111)
 		return nil, err
 	}
 

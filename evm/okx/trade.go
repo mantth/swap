@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"io/ioutil"
 	"math/big"
 	"net/http"
@@ -25,6 +27,9 @@ const (
 	Approve      = "approve-transaction"
 	Quote        = "quote"
 	Swap         = "swap"
+
+	TypeEvm    = 1
+	TypeSolana = 2
 )
 
 type TradeOption struct {
@@ -45,7 +50,8 @@ type TradeOption struct {
 type TradeService struct {
 	ctx        context.Context
 	logger     common2.Logger
-	client     *ethclient.Client
+	evmClient  *ethclient.Client
+	solClient  *rpc.Client
 	secretKey  string
 	accessKey  string
 	apiHost    string
@@ -54,15 +60,12 @@ type TradeService struct {
 	request    string
 }
 
-func NewTradeService(ctx context.Context, logger common2.Logger, apikey string, secret string, host string, passphrase string, project string, rpc string) (*TradeService, error) {
+func NewTradeService(ctx context.Context, logger common2.Logger, apikey string, secret string, host string, passphrase string, project string, rpcUrl string, typ int) (*TradeService, error) {
 	if len(apikey) == 0 || len(host) == 0 {
 		return nil, fmt.Errorf("invalid api param")
 	}
-	client, err := ethclient.Dial(rpc)
-	if err != nil {
-		return nil, err
-	}
-	return &TradeService{
+
+	ts := &TradeService{
 		ctx:        ctx,
 		accessKey:  apikey,
 		secretKey:  secret,
@@ -70,8 +73,19 @@ func NewTradeService(ctx context.Context, logger common2.Logger, apikey string, 
 		passphrase: passphrase,
 		logger:     logger,
 		project:    project,
-		client:     client,
-	}, nil
+	}
+	if typ == TypeEvm {
+		client, err := ethclient.Dial(rpcUrl)
+		if err != nil {
+			return nil, err
+		}
+		ts.evmClient = client
+	}
+	if typ == TypeSolana {
+		clientRPC := rpc.New(rpcUrl)
+		ts.solClient = clientRPC
+	}
+	return ts, nil
 }
 
 func (ts *TradeService) SignRequest(options *TradeOption) error {
@@ -189,7 +203,7 @@ func (ts *TradeService) GetTransactionInfo(options *TradeOption) (*Resp, error) 
 	return res, err
 }
 
-func (ts *TradeService) SendTransaction(userPrivateKey string, tx *Tx) (string, error) {
+func (ts *TradeService) sendEvmTransaction(userPrivateKey string, tx *Tx) (string, error) {
 	ctx := ts.ctx
 	logger := ts.logger
 
@@ -211,7 +225,7 @@ func (ts *TradeService) SendTransaction(userPrivateKey string, tx *Tx) (string, 
 	userAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 
 	// Check user's ETH balance
-	ethBalance, err := ts.client.BalanceAt(context.Background(), userAddress, nil)
+	ethBalance, err := ts.evmClient.BalanceAt(context.Background(), userAddress, nil)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
@@ -227,13 +241,13 @@ func (ts *TradeService) SendTransaction(userPrivateKey string, tx *Tx) (string, 
 		return "", errors.New("insufficient ETH balance for trade")
 	}
 
-	nonce, err := ts.client.PendingNonceAt(ts.ctx, userAddress)
+	nonce, err := ts.evmClient.PendingNonceAt(ts.ctx, userAddress)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
 	}
 
-	chainId, err := ts.client.ChainID(ctx)
+	chainId, err := ts.evmClient.ChainID(ctx)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
@@ -247,12 +261,12 @@ func (ts *TradeService) SendTransaction(userPrivateKey string, tx *Tx) (string, 
 		return "", err
 	}
 
-	gasTip, err := ts.client.SuggestGasTipCap(ctx)
+	gasTip, err := ts.evmClient.SuggestGasTipCap(ctx)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
 	}
-	gasPrice, err := ts.client.SuggestGasPrice(ctx)
+	gasPrice, err := ts.evmClient.SuggestGasPrice(ctx)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
@@ -276,13 +290,66 @@ func (ts *TradeService) SendTransaction(userPrivateKey string, tx *Tx) (string, 
 		return "", err
 	}
 
-	err = ts.client.SendTransaction(ctx, signTx)
+	err = ts.evmClient.SendTransaction(ctx, signTx)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
 	}
 	return signTx.Hash().Hex(), err
+}
 
+func (ts *TradeService) sendSolTransaction(userPrivateKey string, tx *Tx) (string, error) {
+	ctx := ts.ctx
+	logger := ts.logger
+
+	transaction, err := solana.TransactionFromBytes([]byte(tx.Data))
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	privateKey, err := solana.PrivateKeyFromBase58(userPrivateKey)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	signers := []solana.PrivateKey{privateKey}
+	_, err = transaction.Sign(
+		func(key solana.PublicKey) *solana.PrivateKey {
+			for _, payer := range signers {
+				if payer.PublicKey().Equals(key) {
+					return &payer
+				}
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+	sig, err := ts.solClient.SendTransactionWithOpts(
+		ctx,
+		transaction,
+		rpc.TransactionOpts{PreflightCommitment: rpc.CommitmentFinalized},
+	)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+	return sig.String(), nil
+}
+
+func (ts *TradeService) SendTransaction(userPrivateKey string, typ int, tx *Tx) (string, error) {
+	switch typ {
+	case 1:
+		return ts.sendEvmTransaction(userPrivateKey, tx)
+	case 2:
+		return ts.sendSolTransaction(userPrivateKey, tx)
+	default:
+		return "", fmt.Errorf("invalid tx type: %d", typ)
+	}
 }
 
 type Resp struct {
