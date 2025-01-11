@@ -2,11 +2,19 @@ package okx
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"io/ioutil"
+	"math/big"
 	"net/http"
 	"net/url"
+	"strconv"
 	common2 "swap/evm/common"
 	"swap/utils"
 	"time"
@@ -37,36 +45,44 @@ type TradeOption struct {
 type TradeService struct {
 	ctx        context.Context
 	logger     common2.Logger
+	client     *ethclient.Client
 	secretKey  string
+	accessKey  string
 	apiHost    string
 	passphrase string
 	project    string
 	request    string
 }
 
-func NewTradeService(ctx context.Context, logger common2.Logger, apikey string, host string, passphrase string, project string) (*TradeService, error) {
+func NewTradeService(ctx context.Context, logger common2.Logger, apikey string, secret string, host string, passphrase string, project string, rpc string) (*TradeService, error) {
 	if len(apikey) == 0 || len(host) == 0 {
 		return nil, fmt.Errorf("invalid api param")
 	}
+	client, err := ethclient.Dial(rpc)
+	if err != nil {
+		return nil, err
+	}
 	return &TradeService{
 		ctx:        ctx,
-		secretKey:  apikey,
+		accessKey:  apikey,
+		secretKey:  secret,
 		apiHost:    host,
 		passphrase: passphrase,
 		logger:     logger,
 		project:    project,
+		client:     client,
 	}, nil
 }
 
-func (ts *TradeService) SignRequest(options *TradeOption) (map[string]string, error) {
+func (ts *TradeService) SignRequest(options *TradeOption) error {
 	baseURL, err := url.Parse(ts.apiHost)
 	if err != nil {
 		ts.logger.ErrorCtx(ts.ctx, err.Error())
-		return nil, fmt.Errorf("invalid base URL: %v", err)
+		return fmt.Errorf("invalid base URL: %v", err)
 	}
 
 	// Add the endpoint path based on the action (e.g., Swap, Quote, etc.)
-	relativeURL := fmt.Sprintf("/%s", options.Option)
+	relativeURL := fmt.Sprintf("/api/v5/dex/aggregator/%s", options.Option)
 	fullURL := baseURL.ResolveReference(&url.URL{Path: relativeURL})
 
 	// Build query parameters
@@ -101,33 +117,33 @@ func (ts *TradeService) SignRequest(options *TradeOption) (map[string]string, er
 
 	// Append query parameters to the URL
 	fullURL.RawQuery = params.Encode()
-	now := time.Now()
+	now := time.Now().UTC()
 	header := map[string]string{}
-	header["OK-ACCESS-KEY"] = ts.secretKey
-	header["OK-ACCESS-KEY"] = ts.passphrase
-	header["OK-ACCESS-TIMESTAMP"] = utils.GetTimestampStr(now)
-	message := utils.GetTimestampStr(now) + "GET" + fullURL.String()
+	header["OK-ACCESS-KEY"] = ts.accessKey
+	header["OK-ACCESS-PASSPHRASE"] = ts.passphrase
+	header["OK-ACCESS-TIMESTAMP"] = utils.GetTimestampISOStr(now)
+	message := utils.GetTimestampISOStr(now) + "GET" + fullURL.Path + "?" + fullURL.RawQuery
 	sign, _, err := utils.GenerateSignature(message, ts.secretKey)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	header["OK-ACCESS-SIGN"] = sign
 	header["OK-ACCESS-PROJECT"] = ts.project
 	ts.request = fullURL.String()
-	return header, nil
+	options.AuthParam = header
+	return nil
 }
 
-// SendTransaction sends the trade request using GET
-func (ts *TradeService) SendTransaction(options *TradeOption) (string, error) {
+// GetTransactionInfo sends the trade request using GET
+func (ts *TradeService) GetTransactionInfo(options *TradeOption) (*Resp, error) {
 	ctx := ts.ctx
 	logger := ts.logger
 	// Build the request URL with query parameters
-
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "GET", ts.request, nil)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
-		return "", fmt.Errorf("error creating GET request: %v", err)
+		return nil, fmt.Errorf("error creating GET request: %v", err)
 	}
 
 	// Add Authorization header if required
@@ -140,31 +156,154 @@ func (ts *TradeService) SendTransaction(options *TradeOption) (string, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
-		return "", fmt.Errorf("error sending request: %v", err)
+		return nil, fmt.Errorf("error sending request: %v", err)
 	}
 	defer resp.Body.Close()
-
-	// Check for successful response
-	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("error: received non-200 response code: %d", resp.StatusCode)
-		logger.ErrorCtx(ctx, err.Error())
-		return "", err
-	}
 
 	// Read the response body
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
-		return "", fmt.Errorf("error reading response body: %v", err)
+		return nil, fmt.Errorf("error reading response body: %v", err)
+	}
+
+	// Check for successful response
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("error: received non-200 response code: %d", resp.StatusCode)
+		logger.ErrorCtx(ctx, err.Error())
+		return nil, err
 	}
 
 	// Optionally, parse the JSON response into a map or struct
 	var response map[string]interface{}
 	if err := json.Unmarshal(body, &response); err != nil {
 		logger.ErrorCtx(ctx, err.Error())
-		return "", fmt.Errorf("error unmarshalling response: %v", err)
+		return nil, fmt.Errorf("error unmarshalling response: %v", err)
 	}
 
+	res := &Resp{}
+
+	err = json.Unmarshal(body, res)
+
 	// Return the JSON response as a string
-	return string(body), nil
+	return res, err
+}
+
+func (ts *TradeService) SendTransaction(userPrivateKey string, tx *Tx) (string, error) {
+	ctx := ts.ctx
+	logger := ts.logger
+
+	// Validate the private key.
+	privateKey, err := crypto.HexToECDSA(userPrivateKey)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", errors.New("invalid private key")
+	}
+
+	// Derive the public key from the private key
+	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
+	if !ok {
+		logger.ErrorCtx(ctx, "error casting public key to ECDSA")
+		return "", errors.New("error casting public key to ECDSA")
+	}
+
+	// Derive the Ethereum address from the public key.
+	userAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	// Check user's ETH balance
+	ethBalance, err := ts.client.BalanceAt(context.Background(), userAddress, nil)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	amountWei := big.NewInt(0)
+	_, success := amountWei.SetString(tx.Value, 10)
+	if !success {
+		return "", fmt.Errorf("invalid amount in")
+	}
+
+	if ethBalance.Cmp(amountWei) < 0 {
+		return "", errors.New("insufficient ETH balance for trade")
+	}
+
+	nonce, err := ts.client.PendingNonceAt(ts.ctx, userAddress)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	chainId, err := ts.client.ChainID(ctx)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	toAddress := common.HexToAddress(tx.To)
+
+	gas, err := strconv.Atoi(tx.Gas)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	gasTip, err := ts.client.SuggestGasTipCap(ctx)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+	gasPrice, err := ts.client.SuggestGasPrice(ctx)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+	signer := types.NewLondonSigner(chainId)
+
+	transaction := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   chainId,
+		Nonce:     nonce,
+		Gas:       uint64(gas),
+		GasFeeCap: gasPrice,
+		GasTipCap: gasTip,
+		To:        &toAddress,
+		Value:     amountWei,
+		Data:      common.FromHex(tx.Data),
+	})
+
+	signTx, err := types.SignTx(transaction, signer, privateKey)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+
+	err = ts.client.SendTransaction(ctx, signTx)
+	if err != nil {
+		logger.ErrorCtx(ctx, err.Error())
+		return "", err
+	}
+	return signTx.Hash().Hex(), err
+
+}
+
+type Resp struct {
+	Code string  `json:"code"`
+	Data []*Data `json:"data"`
+	Msg  string  `json:"msg"`
+}
+
+type Data struct {
+	RouterResult interface{} `json:"routerResult"`
+	Tx           *Tx         `json:"tx"`
+}
+
+type Tx struct {
+	Data                 string   `json:"data"`
+	From                 string   `json:"from"`
+	Gas                  string   `json:"gas"`
+	GasPrice             string   `json:"gasPrice"`
+	MaxPriorityFeePerGas string   `json:"maxPriorityFeePerGas"`
+	MinReceiveAmount     string   `json:"minReceiveAmount"`
+	SignatureData        []string `json:"signatureData"`
+	To                   string   `json:"to"`
+	Value                string   `json:"value"`
 }

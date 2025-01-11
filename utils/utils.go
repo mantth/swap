@@ -34,6 +34,10 @@ func WeiToEth(wei *big.Int) float64 {
 	return result
 }
 
+func GetTimestampISOStr(t time.Time) string {
+	return t.Format(time.RFC3339)
+}
+
 func GetTimestampStr(t time.Time) string {
 	return fmt.Sprintf("%d", t.Unix())
 }
