@@ -1,6 +1,13 @@
 package utils
 
-import "math/big"
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"time"
+)
 
 // 定义 ETH 到 wei 的换算比例
 const weiInEth = 1000000000000000000 // 1 ETH = 10^18 wei
@@ -25,4 +32,30 @@ func WeiToEth(wei *big.Int) float64 {
 	// 返回浮动类型的 ETH
 	result, _ := ethBig.Float64()
 	return result
+}
+
+func GetTimestampStr(t time.Time) string {
+	return fmt.Sprintf("%d", t.Unix())
+}
+
+func GetTimestampMilliStr(t time.Time) string {
+	return fmt.Sprintf("%d", t.UnixMilli())
+}
+
+func GenerateSignature(msg string, secretKey string) (string, string, error) {
+
+	// 创建 HMAC-SHA256
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	_, err := mac.Write([]byte(msg))
+	if err != nil {
+		return "", "", err
+	}
+
+	// 获取 HMAC 的结果
+	hmacSum := mac.Sum(nil)
+
+	// 将 HMAC 的结果进行 Base64 编码
+	signature := base64.StdEncoding.EncodeToString(hmacSum)
+
+	return signature, fmt.Sprintf("%x", hmacSum), nil
 }

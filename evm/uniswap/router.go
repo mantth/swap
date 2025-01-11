@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"math/big"
 	"swap/config"
+	common2 "swap/evm/common"
 	"swap/evm/uniswap/contract"
 )
 
@@ -17,12 +18,12 @@ import (
 type RouterService struct {
 	ctx    context.Context
 	client *ethclient.Client
-	logger Logger
+	logger common2.Logger
 	config *config.NetworkConfig
 }
 
 // NewRouterService creates a new RouterService
-func NewRouterService(ctx context.Context, client *ethclient.Client, logger Logger, network *config.NetworkConfig) *RouterService {
+func NewRouterService(ctx context.Context, client *ethclient.Client, logger common2.Logger, network *config.NetworkConfig) *RouterService {
 	return &RouterService{
 		ctx:    ctx,
 		client: client,

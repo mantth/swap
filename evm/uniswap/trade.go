@@ -7,31 +7,20 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"go.uber.org/zap"
 	"swap/config"
+	common2 "swap/evm/common"
 	"swap/utils"
 )
-
-type Logger interface {
-	Info(msg string, fields ...zap.Field)
-	Debug(msg string, fields ...zap.Field)
-	Warn(msg string, fields ...zap.Field)
-	Error(msg string, fields ...zap.Field)
-	Fatal(msg string, fields ...zap.Field)
-	Printf(s string, i ...interface{})
-	ErrorCtx(ctx context.Context, msg string, fields ...zap.Field)
-	InfoCtx(ctx context.Context, msg string, fields ...zap.Field)
-}
 
 type TradeService struct {
 	ctx           context.Context
 	client        *ethclient.Client
 	routerService *RouterService
-	logger        Logger
+	logger        common2.Logger
 	chain         string
 }
 
-func NewTradeService(ctx context.Context, rpc string, logger Logger, network *config.NetworkConfig) (*TradeService, error) {
+func NewTradeService(ctx context.Context, rpc string, logger common2.Logger, network *config.NetworkConfig) (*TradeService, error) {
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
 		return nil, err
