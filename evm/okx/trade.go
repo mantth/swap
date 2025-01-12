@@ -365,8 +365,8 @@ type Resp struct {
 }
 
 type Data struct {
-	RouterResult interface{} `json:"routerResult"`
-	Tx           *Tx         `json:"tx"`
+	RouterResult *RouterResult `json:"routerResult"`
+	Tx           *Tx           `json:"tx"`
 }
 
 type Tx struct {
@@ -379,4 +379,31 @@ type Tx struct {
 	SignatureData        []string `json:"signatureData"`
 	To                   string   `json:"to"`
 	Value                string   `json:"value"`
+}
+
+type RouterResult struct {
+	ChainId        string      `json:"chainId"`
+	DexRouterList  interface{} `json:"dexRouterList"`
+	EstimateGasFee string      `json:"estimateGasFee"`
+	FromToken      struct {
+		Decimal              string `json:"decimal"`
+		IsHoneyPot           bool   `json:"isHoneyPot"`
+		TaxRate              string `json:"taxRate"`
+		TokenContractAddress string `json:"tokenContractAddress"`
+		TokenSymbol          string `json:"tokenSymbol"`
+		TokenUnitPrice       string `json:"tokenUnitPrice"`
+	} `json:"fromToken"`
+	FromTokenAmount  string      `json:"fromTokenAmount"`
+	PriceImpactPct   string      `json:"priceImpactPct"`
+	QuoteCompareList interface{} `json:"quoteCompareList"`
+	ToToken          struct {
+		Decimal              string `json:"decimal"`
+		IsHoneyPot           bool   `json:"isHoneyPot"`
+		TaxRate              string `json:"taxRate"`
+		TokenContractAddress string `json:"tokenContractAddress"`
+		TokenSymbol          string `json:"tokenSymbol"`
+		TokenUnitPrice       string `json:"tokenUnitPrice"`
+	} `json:"toToken"`
+	ToTokenAmount string `json:"toTokenAmount"`
+	TradeFee      string `json:"tradeFee"`
 }
