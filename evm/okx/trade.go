@@ -302,11 +302,17 @@ func (ts *TradeService) sendSolTransaction(userPrivateKey string, tx *Tx) (strin
 	ctx := ts.ctx
 	logger := ts.logger
 
-	transaction, err := solana.TransactionFromBytes([]byte(tx.Data))
+	recent, err := ts.solClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", err
+	}
+
+	transaction, err := solana.TransactionFromBase58(tx.Data)
 	if err != nil {
 		logger.ErrorCtx(ctx, err.Error())
 		return "", err
 	}
+	transaction.Message.RecentBlockhash = recent.Value.Blockhash
 
 	privateKey, err := solana.PrivateKeyFromBase58(userPrivateKey)
 	if err != nil {
